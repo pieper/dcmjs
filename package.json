@@ -21,6 +21,9 @@
   },
   "homepage": "https://github.com/pieper/dcmjs#readme",
   "devDependencies": {
+    "cornerstone-core": "^0.13.1",
+    "cornerstone-tools": "^0.10.0",
+    "cornerstone-wado-image-loader": "^0.15.0",
     "rollup": "^0.45.2"
   }
 }
