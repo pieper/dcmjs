@@ -198,13 +198,12 @@
         segMultiframe.SegmentSequence.forEach(segment => {
           // first, map the dicom color into a cornerstone colormap
           const cielab = segment.RecommendedDisplayCIELabValue;
-          let rgba = DCMJS.data.Colors.dicomlab2RGB(cielab).map(x => x * 255);
+          let rgba = DCMJS.data.Colors.dicomlab2RGB(cielab).map(x => Math.round(x * 255));
           rgba.push(255);
           const colormapId = 'Colormap_' + segment.SegmentNumber;
           var colormap = cornerstone.colors.getColormap(colormapId);
-          colormap.setNumberOfColors(2);
-          colormap.insertColor(0, [0, 0, 255, 0]);
-          colormap.insertColor(1, rgba);
+          colormap.setNumberOfColors(256);
+          colormap.setColor(1, rgba);
           // define a stack based on the image ids, color, and segment name
           const segImageIds = getImageIds(segMultiframe, segBaseImageId, segment.SegmentNumber);
           const segStack = {
@@ -265,7 +264,7 @@
           cornerstoneTools.mouseWheelInput.enable(element);
           cornerstoneTools.keyboardInput.enable(element);
 
-          cornerstoneTools.wwwc.activate(element, 1);
+          cornerstoneTools.stackScroll.activate(element, 1);
           cornerstoneTools.pan.activate(element, 2);
           cornerstoneTools.zoom.activate(element, 4);
           cornerstoneTools.stackScrollWheel.activate(element);
