@@ -101,18 +101,13 @@
     function populateSegmentationMask(dataset) {
       // for testing, fill with ones
       const pixels = new Uint8Array(dataset.PixelData);
-      const layers = cornerstone.getLayers(element);
+      const configuration = cornerstoneTools.brush.getConfiguration();
+      const brushLayerId = configuration.brushLayerId;
 
-      // TODO: store the layerId for the brush layer somewhere accessible
-      const paintbrushLayer = layers[1];
-      const brushCanvasImageData = paintbrushLayer.image.getPixelData();
-      const numPixels = paintbrushLayer.image.width * paintbrushLayer.image.height;
-      const pixelData = new Uint8ClampedArray(numPixels);
-      let j = 3;
-      for (let i=0; i < numPixels; i++) {
-        pixelData[i] = brushCanvasImageData[j] > 0;
-        j += 4;
-      }
+      // This will get the pixeldata for this slice for the brush tool
+      const image = cornerstone.getImage(element);
+      const toolState = cornerstoneTools.globalImageIdSpecificToolStateManager.saveToolState();
+      const pixelData = toolState[image.imageId].brush.data[0].pixelData
 
       // populate the segmentation object pixel data
       const bitArray = DCMJS.data.packBitArray(pixelData);
@@ -218,8 +213,8 @@
           for (let i=0; i < numFrames; i++) {
             const imageId = baseImageId + '?frame=' + i;
 
-            var funcationalGroup = multiframe.PerFrameFunctionalGroupsSequence[i];
-            var imagePositionArray = funcationalGroup.PlanePositionSequence.ImagePositionPatient;
+            var functionalGroup = multiframe.PerFrameFunctionalGroupsSequence[i];
+            var imagePositionArray = functionalGroup.PlanePositionSequence.ImagePositionPatient;
 
             addMetaData('imagePlane', imageId, {
               imagePositionPatient: {
