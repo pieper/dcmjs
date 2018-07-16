@@ -1,0 +1,261 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="user-scalable=no, width=device-width, initial-scale=1, maximum-scale=1">
+
+    <link href="../css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+<div class="container">
+    <div class="page-header">
+        <h1>
+            Unified state
+        </h1>
+        <p>
+            This example demonstrates ...
+        </p>
+        <a href="../index.html">Go back to the Examples page</a>
+    </div>
+    <div class="row">
+    </div>
+
+    <div class="row">
+        <div class='col xs-12 sm-6' id='cornerstoneContainer'></div>
+        <div class='col xs-12 sm-6' id='vtkContainer' style="height:300px;width:300px"></div>
+    </div>
+    <div class="row">
+        <div class='col xs-12 sm-12' id='dataContainer'></div>
+    </div>
+</div>
+</body>
+
+
+<script src="../js/jquery.min.js"></script>
+
+<!-- for viewer -->
+<script src="../js/cornerstone.min.js"></script>
+<script src="../js/cornerstoneMath.min.js"></script>
+<script src="../js/hammer.min.js"></script>
+<script src="../js/cornerstoneTools.min.js"></script>
+<script src="../js/dicomParser.min.js"></script>
+<script src="../js/cornerstoneWADOImageLoader.min.js"></script>
+<script src="../js/initWebWorkers.js"></script>
+
+<script src="../helpers/tcia.js"></script>
+<script src="../helpers/viewer.js"></script>
+
+<script src="../../build/dcmjs.js"></script>
+
+<script type="text/javascript" src="https://unpkg.com/vtk.js"></script>
+<script type="text/javascript" src="https://unpkg.com/redux@4.0.0/dist/redux.min.js"></script>
+
+<script>
+  $(document).ready(function() {
+
+    function initVTK() {
+      const imageIds = [
+        'dicomweb:https://s3.amazonaws.com/IsomicsPublic/SampleData/MRHead/MRHead-8-slices.dcm?'
+      ];
+
+      const imageId = 'dicomweb:https://s3.amazonaws.com/IsomicsPublic/SampleData/MRHead/MRHead-8-slices.dcm';
+
+
+      const pluginDiv = document.getElementById('vtkContainer');
+
+      const dcmjs = DCMJS;
+
+      cornerstone.loadAndCacheImage(imageId).then(image => {
+        let arrayBuffer = image.data.byteArray.buffer;
+        let dicomData = dcmjs.data.DicomMessage.readFile(arrayBuffer);
+        let dataset = dcmjs.data.DicomMetaDictionary.naturalizeDataset(dicomData.dict);
+        dataset._meta = dcmjs.data.DicomMetaDictionary.namifyDataset(dicomData.meta);
+        installVTKRenderer(pluginDiv, dataset)
+      });
+    }
+
+    let vtkData = {};
+
+    function installVTKRenderer(container, dataset) {
+      let imageData = vtk.Common.DataModel.vtkImageData.newInstance()
+      imageData.setDimensions([dataset.Columns, dataset.Rows, dataset.NumberOfFrames]);
+      let measures = dataset.SharedFunctionalGroupsSequence.PixelMeasuresSequence;
+      imageData.setSpacing([
+        measures.PixelSpacing[1],
+        measures.PixelSpacing[0],
+        measures.SpacingBetweenSlices
+      ]);
+      // TODO: set origin from ImagePosition
+      // TODO: set directions from ImageOrientation
+
+
+      // set the scalar array from the pixel data
+      // TODO: map the DataRepresentation and PixelsAllocated to vtk scalar types
+      let pixelArray = new Uint16Array(dataset.PixelData);
+      let scalarArray = vtk.Common.Core.vtkDataArray.newInstance({
+        name: "Pixels",
+        numberOfComponents: dataset.SamplesPerPixel,
+        values: pixelArray,
+      });
+      imageData.getPointData().setScalars(scalarArray);
+
+      const volumeViewer = vtk.Rendering.Misc.vtkGenericRenderWindow.newInstance({
+        background: [0, 0, 0],
+      });
+
+      volumeViewer.setContainer(container);
+      const renderer = volumeViewer.getRenderer();
+      const renderWindow = volumeViewer.getRenderWindow();
+
+      const vtkImageMapper = vtk.Rendering.Core.vtkImageMapper;
+      const vtkImageSlice = vtk.Rendering.Core.vtkImageSlice;
+
+      const imageMapper = vtkImageMapper.newInstance();
+
+      const imageActorK = vtkImageSlice.newInstance();
+
+      renderer.addActor(imageActorK);
+
+      const imageMapperK = vtkImageMapper.newInstance();
+      imageMapperK.setInputData(imageData);
+      imageMapperK.setKSlice(1);
+      imageActorK.setMapper(imageMapperK);
+
+      const range = imageData
+        .getPointData()
+        .getScalars()
+        .getRange();
+      const wMin = 1;
+      const wMax = range[1] - range[0];
+      const wGet = imageActorK.getProperty().getColorWindow;
+      const wSet = function(window) {
+        const voi = store.getState().voi;
+        voi.windowWidth = window;
+        store.dispatch({ type: 'UPDATE_WL', voi, setFrom: 'vtk'});
+
+        imageActorK.getProperty().setColorWindow(window);
+      }
+
+      const lMin = range[0];
+      const lMax = range[1];
+      const lGet = imageActorK.getProperty().getColorLevel;
+      const lSet = function(level) {
+        const voi = store.getState().voi;
+        voi.windowCenter = level;
+        store.dispatch({ type: 'UPDATE_WL', voi, setFrom: 'vtk'});
+
+        imageActorK.getProperty().setColorLevel(level);
+      };
+
+      const extent = imageData.getExtent();
+      const kMin = extent[4];
+      const kMax = extent[5];
+      const kGet = imageMapperK.getSlice;
+      const kSet = imageMapperK.setSlice;
+
+      const { Style, Manipulators } = vtk.Interaction;
+      const rangeManipulator = Manipulators.vtkMouseRangeManipulator.newInstance({
+        button: 1,
+        scrollEnabled: true,
+      });
+      rangeManipulator.setVerticalListener(wMin, wMax, 1, wGet, wSet);
+      rangeManipulator.setHorizontalListener(lMin, lMax, 1, lGet, lSet);
+      rangeManipulator.setScrollListener(kMin, kMax, 1, kGet, kSet);
+
+      const iStyle = Style.vtkInteractorStyleManipulator.newInstance();
+      iStyle.addMouseManipulator(rangeManipulator);
+      renderWindow.getInteractor().setInteractorStyle(iStyle);
+
+
+      renderer.resetCamera();
+      renderer.resetCameraClippingRange();
+      renderWindow.render();
+
+      vtkData.imageActorK = imageActorK;
+      vtkData.renderWindow = renderWindow;
+    }
+
+    function initCornerstone() {
+      const element = document.getElementById('cornerstoneContainer');
+      cornerstone.enable(element);
+
+      const imageId = 'dicomweb:' + 'https://s3.amazonaws.com/IsomicsPublic/SampleData/MRHead/MRHead-8-slices.dcm?frame=0';
+      cornerstone.loadAndCacheImage(imageId).then(image => {
+        cornerstone.displayImage(element, image);
+        cornerstoneTools.mouseInput.enable(element);
+        cornerstoneTools.wwwc.activate(element, 1);
+      });
+    }
+
+    initCornerstone();
+    initVTK();
+
+    const UPDATE_WL = 'UPDATE_WL';
+
+    function updateWindowLevel(voi) {
+      return { type: UPDATE_WL, voi }
+    }
+
+    const initialState = {
+      voi: {
+        windowWidth: 255,
+        windowCenter: 127
+      }
+    };
+
+    function app(state = initialState, action) {
+      switch (action.type) {
+        case UPDATE_WL:
+          return Object.assign({}, state, {
+            voi: action.voi,
+            setFrom: action.setFrom
+          })
+        default:
+          return state
+      }
+    }
+
+    const store = Redux.createStore(app);
+    const element = document.getElementById('cornerstoneContainer');
+
+    element.addEventListener('cornerstoneimagerendered', function(event) {
+      const eventData = event.detail;
+      const voi = Object.assign({}, eventData.viewport.voi);
+
+      // TODO: make this not fire when it has been triggered by the reducer
+      store.dispatch({ type: 'UPDATE_WL', voi, setFrom: 'cornerstone' });
+    });
+
+    const unsubscribe = store.subscribe(() => {
+      const state = store.getState();
+
+      console.log(state);
+
+      const element = document.getElementById('cornerstoneContainer');
+      const viewport = cornerstone.getViewport(element);
+
+      if ((state.voi.windowCenter !== viewport.voi.windowCenter ||
+            state.voi.windowWidth !== viewport.voi.windowWidth) &&
+            state.setFrom !== 'cornerstone') {
+
+        viewport.voi = Object.assign({}, state.voi);
+
+        cornerstone.setViewport(element, viewport);
+      }
+
+      const { imageActorK, renderWindow} = vtkData;
+      const colorLevel = imageActorK.getProperty().getColorLevel();
+      const colorWindow = imageActorK.getProperty().getColorWindow();
+
+      if ((state.voi.windowCenter !== colorLevel ||
+           state.voi.windowWidth !== colorWindow) &&
+            state.setFrom !== 'vtk') {
+        imageActorK.getProperty().setColorLevel(state.voi.windowCenter);
+        imageActorK.getProperty().setColorWindow(state.voi.windowWidth);
+
+        renderWindow.render();
+      }
+    });
+  });
+</script>
+</html>
