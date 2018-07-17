@@ -128,23 +128,19 @@
       const wMin = 1;
       const wMax = range[1] - range[0];
       const wGet = imageActorK.getProperty().getColorWindow;
-      const wSet = function(window) {
-        const voi = store.getState().voi;
-        voi.windowWidth = window;
-        store.dispatch({ type: 'UPDATE_WL', voi, setFrom: 'vtk'});
-
-        imageActorK.getProperty().setColorWindow(window);
+      const wSet = function(windowWidth) {
+        const windowCenter = imageActorK.getProperty().getColorLevel();
+        
+        store.dispatch({ type: 'UPDATE_WL', voi: { windowWidth, windowCenter }});
       }
 
       const lMin = range[0];
       const lMax = range[1];
       const lGet = imageActorK.getProperty().getColorLevel;
-      const lSet = function(level) {
-        const voi = store.getState().voi;
-        voi.windowCenter = level;
-        store.dispatch({ type: 'UPDATE_WL', voi, setFrom: 'vtk'});
+      const lSet = function(windowCenter) {
+        const windowWidth = imageActorK.getProperty().getColorWindow();
 
-        imageActorK.getProperty().setColorLevel(level);
+        store.dispatch({ type: 'UPDATE_WL', voi: { windowWidth, windowCenter }});
       };
 
       const extent = imageData.getExtent();
@@ -165,7 +161,6 @@
       const iStyle = Style.vtkInteractorStyleManipulator.newInstance();
       iStyle.addMouseManipulator(rangeManipulator);
       renderWindow.getInteractor().setInteractorStyle(iStyle);
-
 
       renderer.resetCamera();
       renderer.resetCameraClippingRange();
@@ -207,8 +202,10 @@
       switch (action.type) {
         case UPDATE_WL:
           return Object.assign({}, state, {
-            voi: action.voi,
-            setFrom: action.setFrom
+            voi: {
+              windowCenter: action.voi.windowCenter,
+              windowWidth: action.voi.windowWidth
+            }
           })
         default:
           return state
@@ -220,42 +217,44 @@
 
     element.addEventListener('cornerstoneimagerendered', function(event) {
       const eventData = event.detail;
-      const voi = Object.assign({}, eventData.viewport.voi);
 
-      // TODO: make this not fire when it has been triggered by the reducer
-      store.dispatch({ type: 'UPDATE_WL', voi, setFrom: 'cornerstone' });
+      store.dispatch({ type: 'UPDATE_WL', voi: eventData.viewport.voi });
     });
 
-    const unsubscribe = store.subscribe(() => {
+
+    function renderVTKfromState() {
       const state = store.getState();
-
-      console.log(state);
-
-      const element = document.getElementById('cornerstoneContainer');
-      const viewport = cornerstone.getViewport(element);
-
-      if ((state.voi.windowCenter !== viewport.voi.windowCenter ||
-            state.voi.windowWidth !== viewport.voi.windowWidth) &&
-            state.setFrom !== 'cornerstone') {
-
-        viewport.voi = Object.assign({}, state.voi);
-
-        cornerstone.setViewport(element, viewport);
-      }
-
       const { imageActorK, renderWindow} = vtkData;
+
       const colorLevel = imageActorK.getProperty().getColorLevel();
       const colorWindow = imageActorK.getProperty().getColorWindow();
 
-      if ((state.voi.windowCenter !== colorLevel ||
-           state.voi.windowWidth !== colorWindow) &&
-            state.setFrom !== 'vtk') {
+      if (state.voi.windowCenter !== colorLevel ||
+           state.voi.windowWidth !== colorWindow) {
         imageActorK.getProperty().setColorLevel(state.voi.windowCenter);
         imageActorK.getProperty().setColorWindow(state.voi.windowWidth);
 
         renderWindow.render();
       }
-    });
+    }
+
+    function renderCornerstoneFromState() {
+      const state = store.getState();
+
+      const element = document.getElementById('cornerstoneContainer');
+      const viewport = cornerstone.getViewport(element);
+
+      if (state.voi.windowCenter !== viewport.voi.windowCenter ||
+          state.voi.windowWidth !== viewport.voi.windowWidth) {
+
+        viewport.voi = Object.assign({}, state.voi);
+
+        cornerstone.setViewport(element, viewport);
+      }
+    }
+
+    store.subscribe(renderVTKfromState);
+    store.subscribe(renderCornerstoneFromState);
   });
 </script>
 </html>
